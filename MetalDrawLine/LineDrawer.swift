@@ -17,8 +17,8 @@ private final class LineDrawerMTKViewDelegate: NSObject, MTKViewDelegate {
 struct Env {
     let canvasSize: simd_float2
     let vertexCount: UInt32
-    let lastVertexIndex: UInt32
     let controlPointsCount: UInt32
+    let strokeHalfWidth: simd_float1
 }
 
 final class LineDrawer {
@@ -52,8 +52,8 @@ final class LineDrawer {
         env = Env(
             canvasSize: simd_float2(x: 100, y: 100),
             vertexCount: 200,
-            lastVertexIndex: 199,
             controlPointsCount: UInt32(controlPoints.count),
+            strokeHalfWidth: 0.05
         )
         envBuffer = device.makeBuffer(
             bytes: &env,

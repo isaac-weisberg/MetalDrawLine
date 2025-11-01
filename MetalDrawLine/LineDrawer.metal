@@ -8,8 +8,8 @@ using namespace metal;
 struct Env {
     float2 canvasSize;
     uint32_t vertexCount;
-    uint32_t lastVertexIndex;
     uint32_t controlPointsCount;
+    float strokeHalfWidth;
 };
 
 float lerpf(float p1, float p2, float t) {
@@ -23,7 +23,12 @@ float2 lerp(float2 p1, float2 p2, float t) {
                   );
 }
 
-float2 getPointInCurve(
+struct PointInCurve {
+    float2 point;
+    float2 derivative;
+};
+
+PointInCurve getPointInCurve(
                        constant Env* env,
                        constant float2* controlPoints,
                        float t
@@ -57,7 +62,14 @@ float2 getPointInCurve(
         interpolationPoints -= 1;
     }
     
-    float2 pointInTheCurve = interpolation_buffer[previousPageStart];
+    float2 startForDerivative = interpolation_buffer[previousPageStart - 2];
+    float2 endForDerivative = interpolation_buffer[previousPageStart - 1];
+    float2 derivative = endForDerivative - startForDerivative;
+    
+    PointInCurve pointInTheCurve;
+    
+    pointInTheCurve.point = interpolation_buffer[previousPageStart];
+    pointInTheCurve.derivative = derivative;
     
     return pointInTheCurve;
 }
@@ -73,12 +85,43 @@ VertexOut calculateVertex(
                        constant float2* controlPoints[[buffer(1)]],
                        uint vertexId[[vertex_id]]
 ) {
-    float t = (float)vertexId / (float)env->lastVertexIndex;
+    float t;
+    if (vertexId == 0) {
+        t = 0;
+    } else if (vertexId == env->vertexCount - 1) {
+        t = 1;
+    } else {
+        uint integerT = (vertexId - 1);
+        uint range = env->vertexCount - 3; // minus first and last which are served and minus 1 because we shifted the integerT
+        t = (float)integerT / (float)range;
+    }
     
-    float2 pointInCurve = getPointInCurve(env, controlPoints, t);
+    PointInCurve pointInCurve = getPointInCurve(env, controlPoints, t);
+    
+    float derivativeLength = length(pointInCurve.derivative);
+    
+    float2 resultPoint;
+    if (derivativeLength == 0) {
+        resultPoint = pointInCurve.point;
+    } else {
+        float2 derivativeWithUnitLength = pointInCurve.derivative / derivativeLength;
+        
+        bool normalDirectionIsLeft = vertexId % 2 == 0;
+        
+        float2 rotatedDerivativeUnitVector;
+        if (normalDirectionIsLeft) {
+            rotatedDerivativeUnitVector = float2(-derivativeWithUnitLength.y, derivativeWithUnitLength.x);
+        } else {
+            rotatedDerivativeUnitVector = float2(derivativeWithUnitLength.y, -derivativeWithUnitLength.x);
+        }
+        
+        float2 offsetForStrokeWidth = env->strokeHalfWidth * rotatedDerivativeUnitVector;
+        
+        resultPoint = pointInCurve.point + offsetForStrokeWidth;
+    }
     
     VertexOut res;
-    res.pos.xy = pointInCurve;
+    res.pos.xy = resultPoint;
     res.pos.zw = {0, 1};
     res.t = t;
     
