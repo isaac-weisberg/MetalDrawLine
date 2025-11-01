@@ -15,10 +15,10 @@ private final class LineDrawerMTKViewDelegate: NSObject, MTKViewDelegate {
 }
 
 struct Env {
-    let canvasSize: simd_float2
-    let vertexCount: UInt32
-    let controlPointsCount: UInt32
-    let strokeHalfWidth: simd_float1
+    var canvasSize: simd_float2
+    var vertexCount: UInt32
+    var controlPointsCount: UInt32
+    var strokeHalfWidth: simd_float1
 }
 
 final class LineDrawer {
@@ -38,10 +38,10 @@ final class LineDrawer {
         commandQueue = device.makeCommandQueue()!
         library = try! device.makeDefaultLibrary(bundle: Bundle.main)
         controlPoints = [
-            simd_float2(-0.5, -0.5),
-            simd_float2(-0.5, 0.5),
-            simd_float2(0.5, 0.5),
-            simd_float2(0.5, -0.5),
+            simd_float2(100, 200),
+            simd_float2(100, 100),
+            simd_float2(200, 100),
+            simd_float2(200, 200),
         ]
         
         controlPointsBuffer = device.makeBuffer(
@@ -50,14 +50,15 @@ final class LineDrawer {
         )!
         
         env = Env(
-            canvasSize: simd_float2(x: 100, y: 100),
+            canvasSize: simd_float2(x: 0, y: 0),
             vertexCount: 200,
             controlPointsCount: UInt32(controlPoints.count),
-            strokeHalfWidth: 0.05
+            strokeHalfWidth: 4,
         )
         envBuffer = device.makeBuffer(
             bytes: &env,
-            length: MemoryLayout<Env>.stride
+            length: MemoryLayout<Env>.stride,
+            options: .storageModeShared,
         )!
 
         let stateDescriptor = MTLRenderPipelineDescriptor()
@@ -78,7 +79,19 @@ final class LineDrawer {
         
     }
     
+    var lastKnownSize: CGSize?
     func draw(in view: MTKView) {
+        if lastKnownSize != view.bounds.size {
+            lastKnownSize = view.bounds.size
+            
+            env.canvasSize = simd_float2(
+                x: Float(view.bounds.size.width),
+                y: Float(view.bounds.height)
+            )
+            
+            memcpy(envBuffer.contents(), &env, MemoryLayout<Env>.stride)
+        }
+
         guard let onscreenDescriptor = view.currentRenderPassDescriptor else {
             assertionFailure()
             return

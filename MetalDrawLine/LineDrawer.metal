@@ -91,8 +91,10 @@ VertexOut calculateVertex(
     } else if (vertexId == env->vertexCount - 1) {
         t = 1;
     } else {
-        uint integerT = (vertexId - 1);
-        uint range = env->vertexCount - 3; // minus first and last which are served and minus 1 because we shifted the integerT
+        uint integerT = vertexId - 1;
+        
+        // minus first and last (which are reserved) and minus 1 because we shifted the integerT
+        uint range = env->vertexCount - 3;
         t = (float)integerT / (float)range;
     }
     
@@ -120,8 +122,19 @@ VertexOut calculateVertex(
         resultPoint = pointInCurve.point + offsetForStrokeWidth;
     }
     
+    // Result point is in points, we need to convert it to GPU-land
+    
+    // Praying to allakh, there is no division by 0
+    float2 pointInUnitCoordinates = resultPoint / env->canvasSize;
+    
+    float2 pointRelativeToCenter = pointInUnitCoordinates - float2(0.5, 0.5);
+    
+    pointRelativeToCenter.y = -pointRelativeToCenter.y;
+    
+    float2 pointInGpuLand = pointRelativeToCenter * 2.0;
+    
     VertexOut res;
-    res.pos.xy = resultPoint;
+    res.pos.xy = pointInGpuLand;
     res.pos.zw = {0, 1};
     res.t = t;
     
