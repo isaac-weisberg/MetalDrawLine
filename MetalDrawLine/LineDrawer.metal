@@ -62,8 +62,13 @@ float2 getPointInCurve(
     return pointInTheCurve;
 }
 
+struct VertexOut {
+    float4 pos [[position]];
+    float t;
+};
+
 [[vertex]]
-float4 calculateVertex(
+VertexOut calculateVertex(
                        constant Env* env [[buffer(0)]],
                        constant float2* controlPoints[[buffer(1)]],
                        uint vertexId[[vertex_id]]
@@ -72,14 +77,17 @@ float4 calculateVertex(
     
     float2 pointInCurve = getPointInCurve(env, controlPoints, t);
     
-    float4 res;
-    res.xy = pointInCurve;
-    res.zw = {0, 1};
+    VertexOut res;
+    res.pos.xy = pointInCurve;
+    res.pos.zw = {0, 1};
+    res.t = t;
     
     return res;
 }
 
 [[fragment]]
-half4 calculateFragment() {
-    return half4(0.9, 0.25, 0.31, 1);
+half4 calculateFragment(VertexOut v [[stage_in]]) {
+    float multiplier = 0.5 * v.t + 0.5;
+    
+    return half4(0.5 * multiplier, 0.9 * multiplier, 0.8 * multiplier, 1);
 }
