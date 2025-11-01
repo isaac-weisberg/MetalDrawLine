@@ -79,12 +79,21 @@ struct VertexOut {
     float t;
 };
 
-[[vertex]]
-VertexOut calculateVertex(
-                       constant Env* env [[buffer(0)]],
-                       constant float2* controlPoints[[buffer(1)]],
-                       uint vertexId[[vertex_id]]
-) {
+struct Shading {
+    constant float4* colors;
+    constant float* stops;
+    uint colorsCount;
+};
+
+kernel void calculateVertex(
+                            constant Env* env [[buffer(0)]],
+                            constant float2* controlPoints[[buffer(1)]],
+                            device VertexOut* results[[buffer(2)]],
+                            uint vertexId [[thread_position_in_grid]]) {
+    if (vertexId >= env->vertexCount) {
+        return;
+    }
+    
     float t;
     if (vertexId == 0) {
         t = 0;
@@ -138,7 +147,13 @@ VertexOut calculateVertex(
     res.pos.zw = {0, 1};
     res.t = t;
     
-    return res;
+    results[vertexId] = res;
+}
+
+[[vertex]]
+VertexOut vertexPassthrough(const device VertexOut* vertices [[buffer(0)]],
+                            uint vid [[vertex_id]]) {
+    return vertices[vid];
 }
 
 [[fragment]]
