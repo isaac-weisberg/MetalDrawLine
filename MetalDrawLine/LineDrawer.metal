@@ -12,20 +12,34 @@ struct Env {
     float strokeHalfWidth;
 };
 
-float lerpf(float p1, float p2, float t) {
+template <typename T>
+T lerp(T p1, T p2, T t) {
     return (p2 - p1) * t + p1;
+}
+
+half4 lerp(half4 c1, half4 c2, half t) {
+    return half4(
+                 lerp(c1[0], c2[0], t),
+                 lerp(c1[1], c2[1], t),
+                 lerp(c1[2], c2[2], t),
+                 lerp(c1[3], c2[3], t)
+                 );
 }
 
 float2 lerp(float2 p1, float2 p2, float t) {
     return float2(
-                  lerpf(p1.x, p2.x, t),
-                  lerpf(p1.y, p2.y, t)
+                  lerp(p1.x, p2.x, t),
+                  lerp(p1.y, p2.y, t)
                   );
 }
 
 struct PointInCurve {
     float2 point;
     float2 derivative;
+};
+
+struct ColorsCount {
+    uint32_t value;
 };
 
 PointInCurve getPointInCurve(
@@ -77,12 +91,6 @@ PointInCurve getPointInCurve(
 struct VertexOut {
     float4 pos [[position]];
     float t;
-};
-
-struct Shading {
-    constant float4* colors;
-    constant float* stops;
-    uint colorsCount;
 };
 
 kernel void calculateVertex(
@@ -157,8 +165,45 @@ VertexOut vertexPassthrough(const device VertexOut* vertices [[buffer(0)]],
 }
 
 [[fragment]]
-half4 calculateFragment(VertexOut v [[stage_in]]) {
-    float multiplier = 0.5 * v.t + 0.5;
+half4 calculateFragment(
+                        VertexOut v [[stage_in]],
+                        constant half4* colors [[buffer(0)]],
+                        constant float* stops [[buffer(1)]],
+                        constant ColorsCount* _colorsCount [[buffer(2)]]
+                        ) {
+    uint colorsCount = _colorsCount->value;
     
-    return half4(0.5 * multiplier, 0.9 * multiplier, 0.8 * multiplier, 1);
+    float t = v.t;
+    half4 color;
+    for (uint i = 0; i < colorsCount; i++) {
+        float stop = stops[i];
+
+        if (i == colorsCount - 1) {
+            color = colors[i];
+        } else {
+            float nextStop = stops[i + 1];
+            
+            if (t < stop) {
+                color = colors[i];
+                break;
+            } else if (t >= stop && t <= nextStop) {
+                float range = nextStop - stop;
+                
+                if (range == 0) {
+                    color = colors[i];
+                    break;
+                } else {
+                    float diff = t - stop;
+                    
+                    float unitProgressBetweenStops = diff / range;
+                    
+                    color = lerp(colors[i], colors[i + 1], (half)unitProgressBetweenStops);
+                    break;
+                }
+            } else {
+                continue;
+            }
+        }
+    }
+    return color;
 }

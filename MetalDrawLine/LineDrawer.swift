@@ -26,6 +26,16 @@ struct VertexOut {
     let t: Float
 }
 
+struct Shading {
+    var colorsCount: UInt32
+    var colors: [simd_half4]
+    var stops: [Float]
+}
+
+struct ColorsCount {
+    var value: UInt32
+}
+
 final class LineDrawer {
     private let mtkViewDelegate = LineDrawerMTKViewDelegate()
     let device: MTLDevice
@@ -39,8 +49,11 @@ final class LineDrawer {
     var env: Env
     let envBuffer: MTLBuffer
     let bakedVertexBuffer: MTLBuffer
-    
     var bakedVertexBufferDirty = false
+    
+    var shading: Shading
+    var colorsBuffer: MTLBuffer
+    var colorStopsBuffer: MTLBuffer
     
     init() {
         device = MTLCreateSystemDefaultDevice()!
@@ -55,7 +68,7 @@ final class LineDrawer {
         
         controlPointsBuffer = device.makeBuffer(
             bytes: controlPoints,
-            length: MemoryLayout<simd_float2>.stride * controlPoints.count
+            length: MemoryLayout<simd_float2>.stride * controlPoints.count,
         )!
         
         env = Env(
@@ -67,7 +80,6 @@ final class LineDrawer {
         envBuffer = device.makeBuffer(
             bytes: &env,
             length: MemoryLayout<Env>.stride,
-            options: .storageModeShared,
         )!
 
         let rendererStateDescriptor = MTLRenderPipelineDescriptor()
@@ -83,7 +95,47 @@ final class LineDrawer {
         
         bakedVertexBuffer = device.makeBuffer(
             length: MemoryLayout<VertexOut>.stride * Int(env.vertexCount),
-            options: .storageModeShared,
+        )!
+        
+        shading = Shading(
+            colorsCount: 8,
+            colors: [
+                simd_half4(rgba: 0x28E07400), // offscreen
+                
+                simd_half4(rgba: 0x28E074FF), // repeat to fill range
+                simd_half4(rgba: 0x28E074FF),
+                simd_half4(rgba: 0xFECC2CFF),
+                simd_half4(rgba: 0xFA601CFF),
+                simd_half4(rgba: 0xF7393DFF),
+                simd_half4(rgba: 0xF43BD5FF),
+                simd_half4(rgba: 0x385DE3FF),
+                simd_half4(rgba: 0x385DE3FF), // repeat to fill range
+                
+                simd_half4(rgba: 0x385DE300), // offscreen
+            ],
+            stops: [
+                -0.1, // offscreen
+                 
+                 0.00, // repeat to fill range
+                 0.08,
+                 0.28,
+                 0.43,
+                 0.60,
+                 0.75,
+                 0.97,
+                 0.1, // repeat to fill range
+                 
+                 1.1, // offscreen
+            ]
+        )
+        
+        colorsBuffer = device.makeBuffer(
+            bytes: shading.colors,
+            length: MemoryLayout<simd_half4>.stride * shading.colors.count,
+        )!
+        colorStopsBuffer = device.makeBuffer(
+            bytes: shading.stops,
+            length: MemoryLayout<Float>.stride * shading.stops.count,
         )!
     }
     
@@ -171,6 +223,15 @@ final class LineDrawer {
             onscreenCommandEncoder.setRenderPipelineState(renderPipelineState)
             onscreenCommandEncoder.setVertexBuffer(bakedVertexBuffer, offset: 0, index: 0)
             
+            onscreenCommandEncoder.setFragmentBuffer(colorsBuffer, offset: 0, index: 0)
+            onscreenCommandEncoder.setFragmentBuffer(colorStopsBuffer, offset: 0, index: 1)
+            var colorsCount = ColorsCount(value: shading.colorsCount)
+            onscreenCommandEncoder.setFragmentBytes(
+                &colorsCount,
+                length: MemoryLayout<ColorsCount>.stride,
+                index: 2
+            )
+            
             onscreenCommandEncoder.drawPrimitives(
                 type: .triangleStrip,
                 vertexStart: 0,
@@ -193,5 +254,16 @@ extension Optional {
     func assertNonNil() -> Optional {
         Swift.assert(self != nil)
         return self
+    }
+}
+
+extension simd_half4 {
+    init(rgba: UInt32) {
+        let red = Float16((rgba >> 24) & 0xFF) / 255.0
+        let green = Float16((rgba >> 16) & 0xFF) / 255.0
+        let blue = Float16((rgba >> 8) & 0xFF) / 255.0
+        let alpha = Float16(rgba & 0xFF) / 255.0
+
+        self.init(red, green, blue, alpha)
     }
 }
