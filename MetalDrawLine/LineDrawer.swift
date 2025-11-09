@@ -27,9 +27,16 @@ struct VertexOut {
 }
 
 struct Shading {
-    var colorsCount: UInt32
+    let colorsCount: UInt32
     var colors: [simd_half4]
     var stops: [Float]
+    
+    init(colors: [simd_half4], stops: [Float]) {
+        assert(colors.count == stops.count)
+        colorsCount = UInt32(min(colors.count, stops.count))
+        self.colors = colors
+        self.stops = stops
+    }
 }
 
 struct ColorsCount {
@@ -53,7 +60,7 @@ final class LineDrawer {
     
     var shading: Shading
     var colorsBuffer: MTLBuffer
-    var colorStopsBuffer: MTLBuffer
+    var animatedColorsStops: MetalArrayVariable<Float>
     
     init() {
         device = MTLCreateSystemDefaultDevice()!
@@ -98,9 +105,8 @@ final class LineDrawer {
         )!
         
         shading = Shading(
-            colorsCount: 8,
             colors: [
-                simd_half4(rgba: 0x28E07400), // offscreen
+                simd_half4(rgba: 0x28E07400), // offscreen, transparent
                 
                 simd_half4(rgba: 0x28E074FF), // repeat to fill range
                 simd_half4(rgba: 0x28E074FF),
@@ -111,7 +117,7 @@ final class LineDrawer {
                 simd_half4(rgba: 0x385DE3FF),
                 simd_half4(rgba: 0x385DE3FF), // repeat to fill range
                 
-                simd_half4(rgba: 0x385DE300), // offscreen
+                simd_half4(rgba: 0x385DE300), // offscreen, transparent
             ],
             stops: [
                 -0.1, // offscreen
@@ -133,9 +139,9 @@ final class LineDrawer {
             bytes: shading.colors,
             length: MemoryLayout<simd_half4>.stride * shading.colors.count,
         )!
-        colorStopsBuffer = device.makeBuffer(
-            bytes: shading.stops,
-            length: MemoryLayout<Float>.stride * shading.stops.count,
+        animatedColorsStops = MetalArrayVariable(
+            value: shading.stops,
+            device: device
         )!
     }
     
@@ -171,7 +177,7 @@ final class LineDrawer {
             
             env.canvasSize = simd_float2(
                 x: Float(view.bounds.size.width),
-                y: Float(view.bounds.height)
+                y: Float(view.bounds.size.height)
             )
             env.controlPointsCount = UInt32(controlPoints.count)
             
@@ -224,7 +230,8 @@ final class LineDrawer {
             onscreenCommandEncoder.setVertexBuffer(bakedVertexBuffer, offset: 0, index: 0)
             
             onscreenCommandEncoder.setFragmentBuffer(colorsBuffer, offset: 0, index: 0)
-            onscreenCommandEncoder.setFragmentBuffer(colorStopsBuffer, offset: 0, index: 1)
+            animatedColorsStops.flushIfNeeded()
+            onscreenCommandEncoder.setFragmentBuffer(animatedColorsStops.buffer, offset: 0, index: 1)
             var colorsCount = ColorsCount(value: shading.colorsCount)
             onscreenCommandEncoder.setFragmentBytes(
                 &colorsCount,
