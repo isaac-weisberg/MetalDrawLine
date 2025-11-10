@@ -5,29 +5,25 @@ protocol DoubleMaths {
     static func - (lhs: Self, rhs: Self) -> Self
     static func * (lhs: Self, rhs: Self) -> Self
     static func / (lhs: Self, rhs: Self) -> Self
-    static func + (lhs: Double, rhs: Self) -> Self
-    static func - (lhs: Double, rhs: Self) -> Self
-    static func * (lhs: Double, rhs: Self) -> Self
-    static func / (lhs: Double, rhs: Self) -> Self
+    
+    static func mult(_ lhs: Double, _ rhs: Self) -> Self
 }
 
-extension Double: DoubleMaths { }
+extension Float: DoubleMaths {
+    static func mult(_ lhs: Double, _ rhs: Float) -> Float {
+        Float(lhs) * rhs
+    }
+}
 
-extension Array<Double>: DoubleMaths {
-    static func + (lhs: Double, rhs: Array<Element>) -> Array<Element> {
-        rhs.map { val in val + lhs }
+extension Double: DoubleMaths {
+    static func mult(_ lhs: Double, _ rhs: Double) -> Double {
+        lhs * rhs
     }
+}
 
-    static func - (lhs: Double, rhs: Array<Element>) -> Array<Element> {
-        rhs.map { val in val - lhs }
-    }
-    
-    static func * (lhs: Double, rhs: Array<Element>) -> Array<Element> {
-        rhs.map { val in val * lhs }
-    }
-    
-    static func / (lhs: Double, rhs: Array<Element>) -> Array<Element> {
-        rhs.map { val in val / lhs }
+extension Array: DoubleMaths where Element: DoubleMaths {
+    static func mult (_ lhs: Double, _ rhs: Array<Element>) -> Array<Element> {
+        rhs.map { val in Element.mult(lhs, val) }
     }
 
     static func + (lhs: Array<Element>, rhs: Array<Element>) -> Array<Element> {
@@ -54,6 +50,7 @@ extension Array<Double>: DoubleMaths {
 struct VariableAnimation<Variable: DoubleMaths>: ~Copyable {
     let startTime: TimeInterval
     let duration: Double
+    let endTime: Double
     let from: Variable
     let to: Variable
     let range: Variable
@@ -73,13 +70,14 @@ struct VariableAnimation<Variable: DoubleMaths>: ~Copyable {
         self.curve = curve
         
         self.range = to - from
+        self.endTime = startTime + duration
     }
     
     func value(at time: TimeInterval) -> Variable {
         let t = (time - startTime) / duration
         let curved = curve.value(t: t)
         
-        let result = from + curved * range
+        let result = from + Variable.mult(curved, range)
         return result
     }
 }

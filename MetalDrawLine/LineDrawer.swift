@@ -61,6 +61,7 @@ final class LineDrawer {
     var shading: Shading
     var colorsBuffer: MTLBuffer
     var animatedColorsStops: MetalArrayVariable<Float>
+    var colorStopsAnimation: VariableAnimation<[Float]>
     
     init() {
         device = MTLCreateSystemDefaultDevice()!
@@ -90,7 +91,17 @@ final class LineDrawer {
         )!
 
         let rendererStateDescriptor = MTLRenderPipelineDescriptor()
-        rendererStateDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+        
+        let attachment = rendererStateDescriptor.colorAttachments[0]!
+        attachment.pixelFormat = .bgra8Unorm
+        attachment.isBlendingEnabled = true
+        attachment.rgbBlendOperation = .add
+        attachment.alphaBlendOperation = .add
+        attachment.sourceRGBBlendFactor = .sourceAlpha
+        attachment.sourceAlphaBlendFactor = .sourceAlpha
+        attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
+        attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+
         rendererStateDescriptor.vertexDescriptor = nil
         rendererStateDescriptor.vertexFunction = library.makeFunction(name: "vertexPassthrough")!
         rendererStateDescriptor.fragmentFunction = library.makeFunction(name: "calculateFragment")!
@@ -104,7 +115,7 @@ final class LineDrawer {
             length: MemoryLayout<VertexOut>.stride * Int(env.vertexCount),
         )!
         
-        shading = Shading(
+        let shading = Shading(
             colors: [
                 simd_half4(rgba: 0x28E07400), // offscreen, transparent
                 
@@ -134,6 +145,7 @@ final class LineDrawer {
                  1.1, // offscreen
             ]
         )
+        self.shading = shading
         
         colorsBuffer = device.makeBuffer(
             bytes: shading.colors,
@@ -143,6 +155,19 @@ final class LineDrawer {
             value: shading.stops,
             device: device
         )!
+        
+        let totalStopsRange = shading.stops.last! - shading.stops.first!
+        colorStopsAnimation = VariableAnimation(
+            startTime: CACurrentMediaTime(),
+            duration: 3,
+            from: shading.stops.map { val in
+                val - totalStopsRange
+            },
+            to: shading.stops.map { val in
+                val + totalStopsRange
+            },
+            curve: .easeInEaseOut
+        )
     }
     
     func attach(_ view: MTKView) {
@@ -150,6 +175,9 @@ final class LineDrawer {
         (view.layer as? CAMetalLayer)?.colorspace = CGColorSpace(name: CGColorSpace.displayP3)
         view.delegate = mtkViewDelegate
         view.device = device
+        
+        view.isPaused = false
+        view.enableSetNeedsDisplay = false // THere's an anim running
     }
     
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -188,6 +216,17 @@ final class LineDrawer {
                 MemoryLayout<simd_float2>.stride * controlPoints.count,
             )
         }
+        
+        let time = CACurrentMediaTime()
+    
+        if !view.enableSetNeedsDisplay, time > colorStopsAnimation.endTime {
+            view.enableSetNeedsDisplay = true
+            view.isPaused = true
+        }
+        
+        let value = colorStopsAnimation.value(at: time)
+        animatedColorsStops.value = value
+        
 
         guard let onscreenDescriptor = view.currentRenderPassDescriptor else {
             assertionFailure()
