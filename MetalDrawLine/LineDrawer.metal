@@ -216,19 +216,19 @@ kernel void calculateVertex(
                             uint vertexId [[thread_position_in_grid]]) {
     uint startVertexIdForRoundedEndSubdivisions1 = 0;
     uint endVertexIdForRoundedEndSubdivisions1 = startVertexIdForRoundedEndSubdivisions1
-        + bezierGeometry->roundedEndSubdivisions;
+        + bezierGeometry->roundedEndResolution;
     uint startVertexIdForBezierGeometry = endVertexIdForRoundedEndSubdivisions1;
     uint endVertexIdForBezierGeometry = startVertexIdForBezierGeometry
         + bezierGeometry->vertexCount;
     
     uint startVertexIdForRoundedEndSubdivisions2 = endVertexIdForBezierGeometry;
-    uint endVertexIdForRoundedEndSubdivisions2 = startVertexIdForRoundedEndSubdivisions2 + bezierGeometry->roundedEndSubdivisions;
+    uint endVertexIdForRoundedEndSubdivisions2 = startVertexIdForRoundedEndSubdivisions2 + bezierGeometry->roundedEndResolution;
     
     VertexOut res;
     
     if (startVertexIdForRoundedEndSubdivisions1 <= vertexId && vertexId < endVertexIdForRoundedEndSubdivisions1) {
         uint localVertexId = vertexId - startVertexIdForRoundedEndSubdivisions1;
-        res = calculateRoundedEndVertex(env, bezierGeometry, controlPoints, true);
+        res = calculateRoundedEndVertex(env, bezierGeometry, controlPoints, true, localVertexId);
     }
     
     else if (startVertexIdForBezierGeometry <= vertexId && vertexId < endVertexIdForBezierGeometry) {
@@ -239,7 +239,7 @@ kernel void calculateVertex(
     
     else if (startVertexIdForRoundedEndSubdivisions2 <= vertexId && vertexId < endVertexIdForRoundedEndSubdivisions2) {
         uint localVertexId = vertexId - startVertexIdForRoundedEndSubdivisions2;
-        res = calculateRoundedEndVertex(env, bezierGeometry, controlPoints, false);
+        res = calculateRoundedEndVertex(env, bezierGeometry, controlPoints, false, localVertexId);
     }
     results[vertexId] = res;
 }

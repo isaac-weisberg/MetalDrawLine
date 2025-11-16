@@ -28,6 +28,7 @@ struct VertexOut {
 struct BezierGeometry {
     var vertexCount: UInt32
     var controlPointsCount: UInt32
+    var roundedEndResolution: UInt32
 }
 
 struct Shading {
@@ -57,7 +58,7 @@ final class LineDrawer {
     
     var controlPoints: MetalArrayVariable<simd_float2>
     var env: MetalVariable<Env>
-    let bakedVertexBuffer: MTLBuffer
+    var bakedVertices: MetalArrayVariable<VertexOut>
     var bakedVertexBufferDirty = false
     
     var shading: Shading
@@ -85,10 +86,13 @@ final class LineDrawer {
             value: BezierGeometry(
                 vertexCount: 200,
                 controlPointsCount: UInt32(controlPoints.value.count),
+                roundedEndResolution: 5,
             ),
             device: device
         )!
-        let totalVertexCount: UInt32 = bezierGeometry.value.vertexCount + 0
+        let totalVertexCount: UInt32 = bezierGeometry.value.roundedEndResolution
+            + bezierGeometry.value.vertexCount
+            + bezierGeometry.value.roundedEndResolution;
         
         env = MetalVariable(
             value: Env(
@@ -120,8 +124,15 @@ final class LineDrawer {
         self.geometryPipelineState = try! device
             .makeComputePipelineState(function: library.makeFunction(name: "calculateVertex")!)
 
-        bakedVertexBuffer = device.makeBuffer(
-            length: MemoryLayout<VertexOut>.stride * Int(totalVertexCount),
+        bakedVertices = MetalArrayVariable(
+            value: Array(
+                repeating: VertexOut(
+                    pos: .zero,
+                    t: .zero
+                ),
+                count: Int(totalVertexCount),
+            ),
+            device: device
         )!
         
         let shading = Shading(
@@ -227,7 +238,7 @@ final class LineDrawer {
         }
         
         let value = colorStopsAnimation.value(at: time)
-        animatedColorsStops.value = value
+//        animatedColorsStops.value = value
         
 
         guard let onscreenDescriptor = view.currentRenderPassDescriptor else {
@@ -238,8 +249,10 @@ final class LineDrawer {
             return
         }
         
+        var bakedVertexBufferUpdated = false
         if bakedVertexBufferDirty {
             bakedVertexBufferDirty = false
+            bakedVertexBufferUpdated = true
             
             if let computeEncoder = commandBuffer.makeComputeCommandEncoder() {
                 computeEncoder.setComputePipelineState(geometryPipelineState)
@@ -250,7 +263,7 @@ final class LineDrawer {
                 computeEncoder.setBuffer(bezierGeometry.buffer, offset: 0, index: 1)
                 controlPoints.flushIfNeeded()
                 computeEncoder.setBuffer(controlPoints.buffer, offset: 0, index: 2)
-                computeEncoder.setBuffer(bakedVertexBuffer, offset: 0, index: 3)
+                computeEncoder.setBuffer(bakedVertices.buffer, offset: 0, index: 3)
                 
                 let w = geometryPipelineState.threadExecutionWidth
                 
@@ -272,7 +285,7 @@ final class LineDrawer {
             .makeRenderCommandEncoder(descriptor: onscreenDescriptor) {
             
             onscreenCommandEncoder.setRenderPipelineState(renderPipelineState)
-            onscreenCommandEncoder.setVertexBuffer(bakedVertexBuffer, offset: 0, index: 0)
+            onscreenCommandEncoder.setVertexBuffer(bakedVertices.buffer, offset: 0, index: 0)
             
             onscreenCommandEncoder.setFragmentBuffer(colorsBuffer, offset: 0, index: 0)
             animatedColorsStops.flushIfNeeded()
@@ -296,7 +309,14 @@ final class LineDrawer {
                 commandBuffer.present(currentDrawable)
             }
         }
-
+        
+        if bakedVertexBufferUpdated {
+            commandBuffer.addCompletedHandler { [weak self] _ in
+                self?.bakedVertices.reverseFlush()
+                print("ASDF flush!!!")
+            }
+        }
+        
         commandBuffer.commit()
     }
 }

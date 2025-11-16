@@ -40,6 +40,10 @@ struct MetalArrayVariable<Element>: ~Copyable {
     func flush() {
         memcpy(buffer.contents(), value, MemoryLayout<Element>.stride * value.count)
     }
+    
+    mutating func reverseFlush() {
+        memcpy(&value, buffer.contents(), MemoryLayout<Element>.stride * value.count)
+    }
 }
 
 struct MetalVariable<Element>: ~Copyable {
