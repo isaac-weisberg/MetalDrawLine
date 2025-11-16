@@ -13,6 +13,7 @@ struct Env {
 struct BezierGeometry {
     uint32_t vertexCount;
     uint32_t controlPointsCount;
+    uint32_t roundedEndResolution;
 };
 
 template <typename T>
@@ -96,6 +97,64 @@ struct VertexOut {
     float t;
 };
 
+// Result point is in points, we need to convert it to GPU-land
+float2 convertPointToGpuLand(constant Env* env, float2 point) {
+    // Praying to allakh, there is no division by 0
+    float2 pointInUnitCoordinates = point / env->canvasSize;
+    
+    float2 pointRelativeToCenter = pointInUnitCoordinates - float2(0.5, 0.5);
+    
+    pointRelativeToCenter.y = -pointRelativeToCenter.y;
+    
+    float2 pointInGpuLand = pointRelativeToCenter * 2.0;
+    
+    return pointInGpuLand;
+}
+
+VertexOut calculateRoundedEndVertex(constant Env* env,
+                                    constant BezierGeometry* bezierGeometry,
+                                    constant float2* controlPoints,
+                                    bool firstEnd,
+                                    uint vertexId) {
+    float t;
+    float2 tailDirectionVector;
+    
+    if (firstEnd) {
+        float2 vectorFromStartToNext = controlPoints[0] - controlPoints[1];
+        tailDirectionVector = vectorFromStartToNext / length(vectorFromStartToNext);
+        t = 0;
+    } else {
+        float2 vectorFromEndToPrevious = controlPoints[bezierGeometry->controlPointsCount - 1]
+            - controlPoints[bezierGeometry->controlPointsCount - 2];
+        tailDirectionVector = vectorFromEndToPrevious / length(vectorFromEndToPrevious);
+        t = 1;
+    }
+    
+    float2 normal = float2(tailDirectionVector.y, -tailDirectionVector.x);
+    
+    // allakh save me from division by 0
+    float subdivisionArc = __FLT_M_PI__ / bezierGeometry->roundedEndResolution + 1;
+    uint subdivisionIndex = vertexId + 1;
+    float angleToRotateBy = subdivisionArc * subdivisionIndex;
+    
+    auto cosOfAngle = cos(angleToRotateBy);
+    auto sinOfAngle = sin(angleToRotateBy);
+    
+    float2 rotatedVector = float2(
+                                  cosOfAngle * normal.x - sinOfAngle * normal.y,
+                                  sinOfAngle * normal.x + cosOfAngle * normal.y
+                                  );
+    
+    auto pointInGpuLand = convertPointToGpuLand(env, rotatedVector);
+    
+    VertexOut res;
+    res.pos.xy = pointInGpuLand;
+    res.pos.zw = {0, 1};
+    res.t = t;
+ 
+    return res;
+}
+
 VertexOut calculateBezierCurveVertex(
                                      constant Env* env,
                                      constant BezierGeometry* bezierGeometry [[buffer(1)]],
@@ -139,16 +198,7 @@ VertexOut calculateBezierCurveVertex(
         resultPoint = pointInCurve.point + offsetForStrokeWidth;
     }
     
-    // Result point is in points, we need to convert it to GPU-land
-    
-    // Praying to allakh, there is no division by 0
-    float2 pointInUnitCoordinates = resultPoint / env->canvasSize;
-    
-    float2 pointRelativeToCenter = pointInUnitCoordinates - float2(0.5, 0.5);
-    
-    pointRelativeToCenter.y = -pointRelativeToCenter.y;
-    
-    float2 pointInGpuLand = pointRelativeToCenter * 2.0;
+    auto pointInGpuLand = convertPointToGpuLand(env, resultPoint);
     
     VertexOut res;
     res.pos.xy = pointInGpuLand;
@@ -164,16 +214,34 @@ kernel void calculateVertex(
                             constant float2* controlPoints[[buffer(2)]],
                             device VertexOut* results[[buffer(3)]],
                             uint vertexId [[thread_position_in_grid]]) {
-    uint startVertexIdForBezierGeometry = 0;
-    uint endVertexIdForBezierGeometry = startVertexIdForBezierGeometry + bezierGeometry->vertexCount;
+    uint startVertexIdForRoundedEndSubdivisions1 = 0;
+    uint endVertexIdForRoundedEndSubdivisions1 = startVertexIdForRoundedEndSubdivisions1
+        + bezierGeometry->roundedEndSubdivisions;
+    uint startVertexIdForBezierGeometry = endVertexIdForRoundedEndSubdivisions1;
+    uint endVertexIdForBezierGeometry = startVertexIdForBezierGeometry
+        + bezierGeometry->vertexCount;
+    
+    uint startVertexIdForRoundedEndSubdivisions2 = endVertexIdForBezierGeometry;
+    uint endVertexIdForRoundedEndSubdivisions2 = startVertexIdForRoundedEndSubdivisions2 + bezierGeometry->roundedEndSubdivisions;
     
     VertexOut res;
     
-    if (startVertexIdForBezierGeometry <= vertexId && vertexId < endVertexIdForBezierGeometry) {
+    if (startVertexIdForRoundedEndSubdivisions1 <= vertexId && vertexId < endVertexIdForRoundedEndSubdivisions1) {
+        uint localVertexId = vertexId - startVertexIdForRoundedEndSubdivisions1;
+        res = calculateRoundedEndVertex(env, bezierGeometry, controlPoints, true);
+    }
+    
+    else if (startVertexIdForBezierGeometry <= vertexId && vertexId < endVertexIdForBezierGeometry) {
         uint localVertexId = vertexId - startVertexIdForBezierGeometry;
         res = calculateBezierCurveVertex(env, bezierGeometry, controlPoints, localVertexId);
-        results[vertexId] = res;
+        
     }
+    
+    else if (startVertexIdForRoundedEndSubdivisions2 <= vertexId && vertexId < endVertexIdForRoundedEndSubdivisions2) {
+        uint localVertexId = vertexId - startVertexIdForRoundedEndSubdivisions2;
+        res = calculateRoundedEndVertex(env, bezierGeometry, controlPoints, false);
+    }
+    results[vertexId] = res;
 }
 
 [[vertex]]
