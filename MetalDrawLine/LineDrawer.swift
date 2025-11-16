@@ -16,14 +16,18 @@ private final class LineDrawerMTKViewDelegate: NSObject, MTKViewDelegate {
 
 struct Env {
     var canvasSize: simd_float2
-    var vertexCount: UInt32
-    var controlPointsCount: UInt32
     var strokeHalfWidth: simd_float1
+    var totalVertexCount: UInt32
 }
 
 struct VertexOut {
     let pos: simd_float2
     let t: Float
+}
+
+struct BezierGeometry {
+    var vertexCount: UInt32
+    var controlPointsCount: UInt32
 }
 
 struct Shading {
@@ -51,10 +55,8 @@ final class LineDrawer {
     let geometryPipelineState: MTLComputePipelineState
     let library: MTLLibrary
     
-    var controlPoints: [simd_float2]
-    let controlPointsBuffer: MTLBuffer
-    var env: Env
-    let envBuffer: MTLBuffer
+    var controlPoints: MetalArrayVariable<simd_float2>
+    var env: MetalVariable<Env>
     let bakedVertexBuffer: MTLBuffer
     var bakedVertexBufferDirty = false
     
@@ -62,32 +64,39 @@ final class LineDrawer {
     var colorsBuffer: MTLBuffer
     var animatedColorsStops: MetalArrayVariable<Float>
     var colorStopsAnimation: VariableAnimation<[Float]>
+    var bezierGeometry: MetalVariable<BezierGeometry>
     
     init() {
         device = MTLCreateSystemDefaultDevice()!
         commandQueue = device.makeCommandQueue()!
         library = try! device.makeDefaultLibrary(bundle: Bundle.main)
-        controlPoints = [
-            simd_float2(100, 200),
-            simd_float2(100, 100),
-            simd_float2(200, 100),
-            simd_float2(200, 200),
-        ]
-        
-        controlPointsBuffer = device.makeBuffer(
-            bytes: controlPoints,
-            length: MemoryLayout<simd_float2>.stride * controlPoints.count,
+        controlPoints = MetalArrayVariable(
+            value: [
+                simd_float2.zero,
+                simd_float2.zero,
+                simd_float2.zero,
+                simd_float2.zero,
+                simd_float2.zero,
+            ],
+            device: device
         )!
         
-        env = Env(
-            canvasSize: simd_float2(x: 0, y: 0),
-            vertexCount: 200,
-            controlPointsCount: UInt32(controlPoints.count),
-            strokeHalfWidth: 4,
-        )
-        envBuffer = device.makeBuffer(
-            bytes: &env,
-            length: MemoryLayout<Env>.stride,
+        bezierGeometry = MetalVariable(
+            value: BezierGeometry(
+                vertexCount: 200,
+                controlPointsCount: UInt32(controlPoints.value.count),
+            ),
+            device: device
+        )!
+        let totalVertexCount: UInt32 = bezierGeometry.value.vertexCount + 0
+        
+        env = MetalVariable(
+            value: Env(
+                canvasSize: simd_float2(x: 0, y: 0),
+                strokeHalfWidth: 4,
+                totalVertexCount: totalVertexCount
+            ),
+            device: device
         )!
 
         let rendererStateDescriptor = MTLRenderPipelineDescriptor()
@@ -110,9 +119,9 @@ final class LineDrawer {
 
         self.geometryPipelineState = try! device
             .makeComputePipelineState(function: library.makeFunction(name: "calculateVertex")!)
-        
+
         bakedVertexBuffer = device.makeBuffer(
-            length: MemoryLayout<VertexOut>.stride * Int(env.vertexCount),
+            length: MemoryLayout<VertexOut>.stride * Int(totalVertexCount),
         )!
         
         let shading = Shading(
@@ -189,7 +198,7 @@ final class LineDrawer {
         if lastKnownSize != view.bounds.size {
             lastKnownSize = view.bounds.size
             
-            controlPoints = [
+            controlPoints.value = [
                 simd_float2(0.1, 0.1),
                 simd_float2(0.12, 0.8),
                 simd_float2(0.52, 0.6),
@@ -203,18 +212,11 @@ final class LineDrawer {
             }
             bakedVertexBufferDirty = true
             
-            env.canvasSize = simd_float2(
+            env.value.canvasSize = simd_float2(
                 x: Float(view.bounds.size.width),
                 y: Float(view.bounds.size.height)
             )
-            env.controlPointsCount = UInt32(controlPoints.count)
-            
-            memcpy(envBuffer.contents(), &env, MemoryLayout<Env>.stride)
-            memcpy(
-                controlPointsBuffer.contents(),
-                controlPoints,
-                MemoryLayout<simd_float2>.stride * controlPoints.count,
-            )
+            bezierGeometry.value.controlPointsCount = UInt32(controlPoints.value.count)
         }
         
         let time = CACurrentMediaTime()
@@ -241,14 +243,18 @@ final class LineDrawer {
             
             if let computeEncoder = commandBuffer.makeComputeCommandEncoder() {
                 computeEncoder.setComputePipelineState(geometryPipelineState)
-                
-                computeEncoder.setBuffer(envBuffer, offset: 0, index: 0)
-                computeEncoder.setBuffer(controlPointsBuffer, offset: 0, index: 1)
-                computeEncoder.setBuffer(bakedVertexBuffer, offset: 0, index: 2)
+
+                env.flushIfNeeded()
+                computeEncoder.setBuffer(env.buffer, offset: 0, index: 0)
+                bezierGeometry.flushIfNeeded()
+                computeEncoder.setBuffer(bezierGeometry.buffer, offset: 0, index: 1)
+                controlPoints.flushIfNeeded()
+                computeEncoder.setBuffer(controlPoints.buffer, offset: 0, index: 2)
+                computeEncoder.setBuffer(bakedVertexBuffer, offset: 0, index: 3)
                 
                 let w = geometryPipelineState.threadExecutionWidth
                 
-                let threadgroupsPerGrid = MTLSize(width: (Int(env.vertexCount) + w - 1) / w,
+                let threadgroupsPerGrid = MTLSize(width: (Int(env.value.totalVertexCount) + w - 1) / w,
                                                   height: 1,
                                                   depth: 1)
                 let threadsPerThreadgroup = MTLSizeMake(w, 1, 1)
@@ -281,7 +287,7 @@ final class LineDrawer {
             onscreenCommandEncoder.drawPrimitives(
                 type: .triangleStrip,
                 vertexStart: 0,
-                vertexCount: Int(env.vertexCount)
+                vertexCount: Int(env.value.totalVertexCount)
             )
             
             onscreenCommandEncoder.endEncoding()

@@ -7,9 +7,12 @@ using namespace metal;
 
 struct Env {
     float2 canvasSize;
+    float strokeHalfWidth;
+};
+
+struct BezierGeometry {
     uint32_t vertexCount;
     uint32_t controlPointsCount;
-    float strokeHalfWidth;
 };
 
 template <typename T>
@@ -43,13 +46,13 @@ struct ColorsCount {
 };
 
 PointInCurve getPointInCurve(
-                       constant Env* env,
+                       constant BezierGeometry* bezierGeometry,
                        constant float2* controlPoints,
                        float t
                        ) {
     
     float2 interpolation_buffer[MAX_POINTS_BUFFER];
-    for (uint i = 0; i < env->controlPointsCount - 1; i++) {
+    for (uint i = 0; i < bezierGeometry->controlPointsCount - 1; i++) {
         float2 p1 = controlPoints[i];
         float2 p2 = controlPoints[i + 1];
         float2 interpolatedPoint = lerp(p1, p2, t);
@@ -57,9 +60,9 @@ PointInCurve getPointInCurve(
         interpolation_buffer[i] = interpolatedPoint;
     }
     
-    uint interpolationPoints = env->controlPointsCount - 1;
+    uint interpolationPoints = bezierGeometry->controlPointsCount - 1;
     uint previousPageStart = 0;
-    uint pageStart = env->controlPointsCount - 1;
+    uint pageStart = bezierGeometry->controlPointsCount - 1;
 
     while (interpolationPoints > 1) {
         
@@ -93,29 +96,26 @@ struct VertexOut {
     float t;
 };
 
-kernel void calculateVertex(
-                            constant Env* env [[buffer(0)]],
-                            constant float2* controlPoints[[buffer(1)]],
-                            device VertexOut* results[[buffer(2)]],
-                            uint vertexId [[thread_position_in_grid]]) {
-    if (vertexId >= env->vertexCount) {
-        return;
-    }
-    
+VertexOut calculateBezierCurveVertex(
+                                     constant Env* env,
+                                     constant BezierGeometry* bezierGeometry [[buffer(1)]],
+                                     constant float2* controlPoints[[buffer(2)]],
+                                     uint vertexId
+                                     ) {
     float t;
     if (vertexId == 0) {
         t = 0;
-    } else if (vertexId == env->vertexCount - 1) {
+    } else if (vertexId == bezierGeometry->vertexCount - 1) {
         t = 1;
     } else {
         uint integerT = vertexId - 1;
         
         // minus first and last (which are reserved) and minus 1 because we shifted the integerT
-        uint range = env->vertexCount - 3;
+        uint range = bezierGeometry->vertexCount - 3;
         t = (float)integerT / (float)range;
     }
     
-    PointInCurve pointInCurve = getPointInCurve(env, controlPoints, t);
+    PointInCurve pointInCurve = getPointInCurve(bezierGeometry, controlPoints, t);
     
     float derivativeLength = length(pointInCurve.derivative);
     
@@ -154,8 +154,26 @@ kernel void calculateVertex(
     res.pos.xy = pointInGpuLand;
     res.pos.zw = {0, 1};
     res.t = t;
+ 
+    return res;
+}
+
+kernel void calculateVertex(
+                            constant Env* env [[buffer(0)]],
+                            constant BezierGeometry* bezierGeometry [[buffer(1)]],
+                            constant float2* controlPoints[[buffer(2)]],
+                            device VertexOut* results[[buffer(3)]],
+                            uint vertexId [[thread_position_in_grid]]) {
+    uint startVertexIdForBezierGeometry = 0;
+    uint endVertexIdForBezierGeometry = startVertexIdForBezierGeometry + bezierGeometry->vertexCount;
     
-    results[vertexId] = res;
+    VertexOut res;
+    
+    if (startVertexIdForBezierGeometry <= vertexId && vertexId < endVertexIdForBezierGeometry) {
+        uint localVertexId = vertexId - startVertexIdForBezierGeometry;
+        res = calculateBezierCurveVertex(env, bezierGeometry, controlPoints, localVertexId);
+        results[vertexId] = res;
+    }
 }
 
 [[vertex]]
