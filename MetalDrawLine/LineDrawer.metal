@@ -51,6 +51,18 @@ PointInCurve getPointInCurve(
                        constant float2* controlPoints,
                        float t
                        ) {
+
+    if (bezierGeometry->controlPointsCount == 2) {
+        float2 p1 = controlPoints[0];
+        float2 p2 = controlPoints[1];
+        float2 derivative = p2 - p1;
+        float2 interpolatedPoint = lerp(p1, p2, t);
+        
+        PointInCurve pointInCurve;
+        pointInCurve.derivative = derivative;
+        pointInCurve.point = interpolatedPoint;
+        return pointInCurve;
+    }
     
     float2 interpolation_buffer[MAX_POINTS_BUFFER];
     for (uint i = 0; i < bezierGeometry->controlPointsCount - 1; i++) {
