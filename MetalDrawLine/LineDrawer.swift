@@ -21,7 +21,7 @@ struct Env {
 }
 
 struct VertexOut {
-    let pos: simd_float2
+    let pos: simd_float4
     let t: Float
 }
 
@@ -313,7 +313,6 @@ final class LineDrawer {
         if bakedVertexBufferUpdated {
             commandBuffer.addCompletedHandler { [weak self] _ in
                 self?.bakedVertices.reverseFlush()
-                print("ASDF flush!!!")
             }
         }
         

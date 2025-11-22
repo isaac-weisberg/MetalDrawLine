@@ -122,11 +122,13 @@ VertexOut calculateRoundedEndVertex(constant Env* env,
     if (firstEnd) {
         float2 vectorFromStartToNext = controlPoints[0] - controlPoints[1];
         tailDirectionVector = vectorFromStartToNext / length(vectorFromStartToNext);
+        tailDirectionVector *= env->strokeHalfWidth;
         t = 0;
     } else {
         float2 vectorFromEndToPrevious = controlPoints[bezierGeometry->controlPointsCount - 1]
             - controlPoints[bezierGeometry->controlPointsCount - 2];
         tailDirectionVector = vectorFromEndToPrevious / length(vectorFromEndToPrevious);
+        tailDirectionVector *= env->strokeHalfWidth;
         t = 1;
     }
     
@@ -140,12 +142,22 @@ VertexOut calculateRoundedEndVertex(constant Env* env,
     auto cosOfAngle = cos(angleToRotateBy);
     auto sinOfAngle = sin(angleToRotateBy);
     
+    
+    // This is local, keep in mind
     float2 rotatedVector = float2(
                                   cosOfAngle * normal.x - sinOfAngle * normal.y,
                                   sinOfAngle * normal.x + cosOfAngle * normal.y
                                   );
     
-    auto pointInGpuLand = convertPointToGpuLand(env, rotatedVector);
+    float2 pointAttachedToTheEnd;
+    if (firstEnd) {
+        pointAttachedToTheEnd = controlPoints[0] + rotatedVector;
+    } else {
+        pointAttachedToTheEnd = controlPoints[bezierGeometry->controlPointsCount - 1]
+            + rotatedVector;
+    }
+    
+    auto pointInGpuLand = convertPointToGpuLand(env, pointAttachedToTheEnd);
     
     VertexOut res;
     res.pos.xy = pointInGpuLand;
