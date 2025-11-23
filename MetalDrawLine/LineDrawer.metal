@@ -107,6 +107,15 @@ PointInCurve getPointInCurve(
 struct VertexOut {
     float4 pos [[position]];
     float t;
+    
+    #if DEBUG
+    uint8_t vertexType;
+    float2 unscaledTailDirectionVector;
+    float2 tailDirectionVector;
+    float angleToRotateBy;
+    float2 rotatedVector;
+    float2 pointAttachedToTheEnd;
+    #endif
 };
 
 // Result point is in points, we need to convert it to GPU-land
@@ -129,20 +138,20 @@ VertexOut calculateRoundedEndVertex(constant Env* env,
                                     bool firstEnd,
                                     uint vertexId) {
     float t;
-    float2 tailDirectionVector;
+    float2 unscaledTailDirectionVector;
     
     if (firstEnd) {
         float2 vectorFromStartToNext = controlPoints[0] - controlPoints[1];
-        tailDirectionVector = vectorFromStartToNext / length(vectorFromStartToNext);
-        tailDirectionVector *= env->strokeHalfWidth;
+        unscaledTailDirectionVector = vectorFromStartToNext / length(vectorFromStartToNext);
         t = 0;
     } else {
         float2 vectorFromEndToPrevious = controlPoints[bezierGeometry->controlPointsCount - 1]
             - controlPoints[bezierGeometry->controlPointsCount - 2];
-        tailDirectionVector = vectorFromEndToPrevious / length(vectorFromEndToPrevious);
-        tailDirectionVector *= env->strokeHalfWidth;
+        unscaledTailDirectionVector = vectorFromEndToPrevious / length(vectorFromEndToPrevious);
         t = 1;
     }
+    
+    float2 tailDirectionVector = unscaledTailDirectionVector * env->strokeHalfWidth;
     
     float2 normal = float2(tailDirectionVector.y, -tailDirectionVector.x);
     
@@ -175,6 +184,19 @@ VertexOut calculateRoundedEndVertex(constant Env* env,
     res.pos.xy = pointInGpuLand;
     res.pos.zw = {0, 1};
     res.t = t;
+    
+#if DEBUG
+    if (firstEnd) {
+        res.vertexType = 0;
+    } else {
+        res.vertexType = 2;
+    }
+    res.unscaledTailDirectionVector = unscaledTailDirectionVector;
+    res.tailDirectionVector = tailDirectionVector;
+    res.angleToRotateBy = angleToRotateBy;
+    res.rotatedVector = rotatedVector;
+    res.pointAttachedToTheEnd = pointAttachedToTheEnd;
+#endif
  
     return res;
 }
@@ -228,6 +250,7 @@ VertexOut calculateBezierCurveVertex(
     res.pos.xy = pointInGpuLand;
     res.pos.zw = {0, 1};
     res.t = t;
+    res.vertexType = 1;
  
     return res;
 }

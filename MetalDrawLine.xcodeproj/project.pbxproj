@@ -91,7 +91,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1640;
-				LastUpgradeCheck = 1640;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					A421451A2EAE2C1900921FDB = {
 						CreatedOnToolsVersion = 16.4;
@@ -158,6 +158,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				MTL_COMPILER_FLAGS = "-DDEBUG=1";
 				PRODUCT_BUNDLE_IDENTIFIER = net.caroline.weisberg.MetalDrawLine;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

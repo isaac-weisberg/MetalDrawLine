@@ -21,8 +21,17 @@ struct Env {
 }
 
 struct VertexOut {
-    let pos: simd_float4
-    let t: Float
+    var pos: simd_float4 = .zero
+    var t: Float = 0
+    
+    #if DEBUG
+    var vertexType: UInt8 = 0
+    var unscaledTailDirectionVector: simd_float2 = .zero
+    var tailDirectionVector: simd_float2 = .zero
+    var angleToRotateBy: Float = 0
+    var rotatedVector: simd_float2 = .zero
+    var pointAttachedToTheEnd: simd_float2 = .zero
+    #endif
 }
 
 struct BezierGeometry {
@@ -73,9 +82,12 @@ final class LineDrawer {
         library = try! device.makeDefaultLibrary(bundle: Bundle.main)
         controlPoints = MetalArrayVariable(
             value: [
-                simd_float2.zero,
-                simd_float2.zero,
-                simd_float2.zero,
+//                simd_float2.zero,
+//                simd_float2.zero,
+//                simd_float2.zero,
+//                simd_float2.zero,
+//                simd_float2.zero,
+                
                 simd_float2.zero,
                 simd_float2.zero,
             ],
@@ -126,10 +138,7 @@ final class LineDrawer {
 
         bakedVertices = MetalArrayVariable(
             value: Array(
-                repeating: VertexOut(
-                    pos: .zero,
-                    t: .zero
-                ),
+                repeating: VertexOut(),
                 count: Int(totalVertexCount),
             ),
             device: device
@@ -210,11 +219,14 @@ final class LineDrawer {
             lastKnownSize = view.bounds.size
             
             controlPoints.value = [
-                simd_float2(0.1, 0.1),
-                simd_float2(0.12, 0.8),
-                simd_float2(0.52, 0.6),
-                simd_float2(0.64, 0.3),
-                simd_float2(0.9, 0.55),
+//                simd_float2(0.1, 0.1),
+//                simd_float2(0.12, 0.8),
+//                simd_float2(0.52, 0.6),
+//                simd_float2(0.64, 0.3),
+//                simd_float2(0.9, 0.55),
+                
+                simd_float2(0.25, 0.75),
+                simd_float2(0.75, 0.25),
             ].map { vec in
                 simd_float2(
                     vec.x * Float(view.bounds.size.width),
