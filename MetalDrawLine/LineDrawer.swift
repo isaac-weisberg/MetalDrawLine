@@ -103,7 +103,7 @@ final class LineDrawer {
             value: BezierGeometry(
                 vertexCount: 200,
                 controlPointsCount: UInt32(controlPoints.value.count),
-                roundedEndResolution: 1,
+                roundedEndResolution: 5,
             ),
             device: device
         )!
@@ -250,8 +250,8 @@ final class LineDrawer {
         let time = CACurrentMediaTime()
     
         if !view.enableSetNeedsDisplay, time > colorStopsAnimation.endTime {
-            view.enableSetNeedsDisplay = true
-            view.isPaused = true
+//            view.enableSetNeedsDisplay = true
+//            view.isPaused = true
         }
         
         let value = colorStopsAnimation.value(at: time)
