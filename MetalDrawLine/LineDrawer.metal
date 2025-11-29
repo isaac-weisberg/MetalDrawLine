@@ -65,7 +65,7 @@ PointInCurve getPointInCurve(
     }
     
     float2 interpolation_buffer[MAX_POINTS_BUFFER];
-    for (uint i = 0; i < bezierGeometry->controlPointsCount - 1; i++) {
+    for (uint32_t i = 0; i < bezierGeometry->controlPointsCount - 1; i++) {
         float2 p1 = controlPoints[i];
         float2 p2 = controlPoints[i + 1];
         float2 interpolatedPoint = lerp(p1, p2, t);
@@ -73,13 +73,13 @@ PointInCurve getPointInCurve(
         interpolation_buffer[i] = interpolatedPoint;
     }
     
-    uint interpolationPoints = bezierGeometry->controlPointsCount - 1;
-    uint previousPageStart = 0;
-    uint pageStart = bezierGeometry->controlPointsCount - 1;
+    uint32_t interpolationPoints = bezierGeometry->controlPointsCount - 1;
+    uint32_t previousPageStart = 0;
+    uint32_t pageStart = bezierGeometry->controlPointsCount - 1;
 
     while (interpolationPoints > 1) {
         
-        for (uint i = 0; i < interpolationPoints - 1; i++) {
+        for (uint32_t i = 0; i < interpolationPoints - 1; i++) {
             float2 p1 = interpolation_buffer[previousPageStart + i];
             float2 p2 = interpolation_buffer[previousPageStart + i + 1];
             float2 interpolatedPoint = lerp(p1, p2, t);
@@ -112,7 +112,12 @@ struct VertexOut {
     uint8_t vertexType;
     float2 unscaledTailDirectionVector;
     float2 tailDirectionVector;
+    float2 normalVector;
     float angleToRotateBy;
+    uint32_t subdivisionIndex;
+    float subdivisionArc;
+    float subdivisionArcDividend;
+    float subdivisionArcDivisor;
     float2 rotatedVector;
     float2 pointAttachedToTheEnd;
     #endif
@@ -136,7 +141,7 @@ VertexOut calculateRoundedEndVertex(constant Env* env,
                                     constant BezierGeometry* bezierGeometry,
                                     constant float2* controlPoints,
                                     bool firstEnd,
-                                    uint vertexId) {
+                                    uint32_t vertexId) {
     float t;
     float2 unscaledTailDirectionVector;
     
@@ -156,8 +161,10 @@ VertexOut calculateRoundedEndVertex(constant Env* env,
     float2 normal = float2(tailDirectionVector.y, -tailDirectionVector.x);
     
     // allakh save me from division by 0
-    float subdivisionArc = __FLT_M_PI__ / bezierGeometry->roundedEndResolution + 1;
-    uint subdivisionIndex = vertexId + 1;
+    float subdivisionArcDividend = __FLT_M_PI__;
+    float subdivisionArcDivisor = bezierGeometry->roundedEndResolution + 1;
+    float subdivisionArc = subdivisionArcDividend / subdivisionArcDivisor;
+    uint32_t subdivisionIndex = vertexId + 1;
     float angleToRotateBy = subdivisionArc * subdivisionIndex;
     
     auto cosOfAngle = cos(angleToRotateBy);
@@ -193,7 +200,12 @@ VertexOut calculateRoundedEndVertex(constant Env* env,
     }
     res.unscaledTailDirectionVector = unscaledTailDirectionVector;
     res.tailDirectionVector = tailDirectionVector;
+    res.normalVector = normal;
     res.angleToRotateBy = angleToRotateBy;
+    res.subdivisionIndex = subdivisionIndex;
+    res.subdivisionArc = subdivisionArc;
+    res.subdivisionArcDividend = subdivisionArcDividend;
+    res.subdivisionArcDivisor = subdivisionArcDivisor;
     res.rotatedVector = rotatedVector;
     res.pointAttachedToTheEnd = pointAttachedToTheEnd;
 #endif
@@ -205,7 +217,7 @@ VertexOut calculateBezierCurveVertex(
                                      constant Env* env,
                                      constant BezierGeometry* bezierGeometry [[buffer(1)]],
                                      constant float2* controlPoints[[buffer(2)]],
-                                     uint vertexId
+                                     uint32_t vertexId
                                      ) {
     float t;
     if (vertexId == 0) {
@@ -213,10 +225,10 @@ VertexOut calculateBezierCurveVertex(
     } else if (vertexId == bezierGeometry->vertexCount - 1) {
         t = 1;
     } else {
-        uint integerT = vertexId - 1;
+        uint32_t integerT = vertexId - 1;
         
         // minus first and last (which are reserved) and minus 1 because we shifted the integerT
-        uint range = bezierGeometry->vertexCount - 3;
+        uint32_t range = bezierGeometry->vertexCount - 3;
         t = (float)integerT / (float)range;
     }
     
@@ -260,32 +272,32 @@ kernel void calculateVertex(
                             constant BezierGeometry* bezierGeometry [[buffer(1)]],
                             constant float2* controlPoints[[buffer(2)]],
                             device VertexOut* results[[buffer(3)]],
-                            uint vertexId [[thread_position_in_grid]]) {
-    uint startVertexIdForRoundedEndSubdivisions1 = 0;
-    uint endVertexIdForRoundedEndSubdivisions1 = startVertexIdForRoundedEndSubdivisions1
+                            uint32_t vertexId [[thread_position_in_grid]]) {
+    uint32_t startVertexIdForRoundedEndSubdivisions1 = 0;
+    uint32_t endVertexIdForRoundedEndSubdivisions1 = startVertexIdForRoundedEndSubdivisions1
         + bezierGeometry->roundedEndResolution;
-    uint startVertexIdForBezierGeometry = endVertexIdForRoundedEndSubdivisions1;
-    uint endVertexIdForBezierGeometry = startVertexIdForBezierGeometry
+    uint32_t startVertexIdForBezierGeometry = endVertexIdForRoundedEndSubdivisions1;
+    uint32_t endVertexIdForBezierGeometry = startVertexIdForBezierGeometry
         + bezierGeometry->vertexCount;
     
-    uint startVertexIdForRoundedEndSubdivisions2 = endVertexIdForBezierGeometry;
-    uint endVertexIdForRoundedEndSubdivisions2 = startVertexIdForRoundedEndSubdivisions2 + bezierGeometry->roundedEndResolution;
+    uint32_t startVertexIdForRoundedEndSubdivisions2 = endVertexIdForBezierGeometry;
+    uint32_t endVertexIdForRoundedEndSubdivisions2 = startVertexIdForRoundedEndSubdivisions2 + bezierGeometry->roundedEndResolution;
     
     VertexOut res;
     
     if (startVertexIdForRoundedEndSubdivisions1 <= vertexId && vertexId < endVertexIdForRoundedEndSubdivisions1) {
-        uint localVertexId = vertexId - startVertexIdForRoundedEndSubdivisions1;
+        uint32_t localVertexId = vertexId - startVertexIdForRoundedEndSubdivisions1;
         res = calculateRoundedEndVertex(env, bezierGeometry, controlPoints, true, localVertexId);
     }
     
     else if (startVertexIdForBezierGeometry <= vertexId && vertexId < endVertexIdForBezierGeometry) {
-        uint localVertexId = vertexId - startVertexIdForBezierGeometry;
+        uint32_t localVertexId = vertexId - startVertexIdForBezierGeometry;
         res = calculateBezierCurveVertex(env, bezierGeometry, controlPoints, localVertexId);
         
     }
     
     else if (startVertexIdForRoundedEndSubdivisions2 <= vertexId && vertexId < endVertexIdForRoundedEndSubdivisions2) {
-        uint localVertexId = vertexId - startVertexIdForRoundedEndSubdivisions2;
+        uint32_t localVertexId = vertexId - startVertexIdForRoundedEndSubdivisions2;
         res = calculateRoundedEndVertex(env, bezierGeometry, controlPoints, false, localVertexId);
     }
     results[vertexId] = res;
@@ -293,7 +305,7 @@ kernel void calculateVertex(
 
 [[vertex]]
 VertexOut vertexPassthrough(const device VertexOut* vertices [[buffer(0)]],
-                            uint vid [[vertex_id]]) {
+                            uint32_t vid [[vertex_id]]) {
     return vertices[vid];
 }
 
@@ -304,11 +316,11 @@ half4 calculateFragment(
                         constant float* stops [[buffer(1)]],
                         constant ColorsCount* _colorsCount [[buffer(2)]]
                         ) {
-    uint colorsCount = _colorsCount->value;
+    uint32_t colorsCount = _colorsCount->value;
     
     float t = v.t;
     half4 color;
-    for (uint i = 0; i < colorsCount; i++) {
+    for (uint32_t i = 0; i < colorsCount; i++) {
         float stop = stops[i];
 
         if (i == colorsCount - 1) {

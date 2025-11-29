@@ -28,7 +28,12 @@ struct VertexOut {
     var vertexType: UInt8 = 0
     var unscaledTailDirectionVector: simd_float2 = .zero
     var tailDirectionVector: simd_float2 = .zero
+    var normalVector: simd_float2 = .zero
     var angleToRotateBy: Float = 0
+    var subdivisionIndex: Int32 = 0
+    var subdivisionArc: Float = 0
+    var subdivisionArcDividend: Float = 0;
+    var subdivisionArcDivisor: Float = 0;
     var rotatedVector: simd_float2 = .zero
     var pointAttachedToTheEnd: simd_float2 = .zero
     #endif
@@ -98,7 +103,7 @@ final class LineDrawer {
             value: BezierGeometry(
                 vertexCount: 200,
                 controlPointsCount: UInt32(controlPoints.value.count),
-                roundedEndResolution: 5,
+                roundedEndResolution: 1,
             ),
             device: device
         )!
@@ -109,7 +114,7 @@ final class LineDrawer {
         env = MetalVariable(
             value: Env(
                 canvasSize: simd_float2(x: 0, y: 0),
-                strokeHalfWidth: 4,
+                strokeHalfWidth: 16,
                 totalVertexCount: totalVertexCount
             ),
             device: device
@@ -225,8 +230,8 @@ final class LineDrawer {
 //                simd_float2(0.64, 0.3),
 //                simd_float2(0.9, 0.55),
                 
-                simd_float2(0.25, 0.75),
-                simd_float2(0.75, 0.25),
+                simd_float2(0.5, 0.25),
+                simd_float2(0.5, 0.75),
             ].map { vec in
                 simd_float2(
                     vec.x * Float(view.bounds.size.width),
