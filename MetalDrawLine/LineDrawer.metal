@@ -11,9 +11,12 @@ struct Env {
 };
 
 struct BezierGeometry {
-    uint32_t vertexCount;
+    uint32_t bodyVertexCount;
     uint32_t controlPointsCount;
-    uint32_t roundedEndResolution;
+    /// NB: 1 point for semi-cercle center
+    /// + n points for arc resolution
+    uint32_t roundedEndPointsCount;
+    uint32_t totalVertexCount;
 };
 
 template <typename T>
@@ -104,12 +107,8 @@ PointInCurve getPointInCurve(
     return pointInTheCurve;
 }
 
-struct VertexOut {
-    float4 pos [[position]];
-    float t;
-    
-    #if DEBUG
-    uint8_t vertexType;
+#if DEBUG
+struct SubdividedArcPointDebugData {
     float2 unscaledTailDirectionVector;
     float2 tailDirectionVector;
     float2 normalVector;
@@ -120,6 +119,16 @@ struct VertexOut {
     float subdivisionArcDivisor;
     float2 rotatedVector;
     float2 pointAttachedToTheEnd;
+};
+#endif
+
+struct VertexOut {
+    float4 pos [[position]];
+    float t;
+    
+    #if DEBUG
+    uint8_t vertexType;
+    SubdividedArcPointDebugData subdividedArcPointDebugData;
     #endif
 };
 
@@ -137,55 +146,90 @@ float2 convertPointToGpuLand(constant Env* env, float2 point) {
     return pointInGpuLand;
 }
 
+/// `vertexId` `0` is the center of the semi-circle
+/// `vertexId`  `1..<n`is the subdivision index;
+///     i.e., index of rotation from `normal`
 VertexOut calculateRoundedEndVertex(constant Env* env,
                                     constant BezierGeometry* bezierGeometry,
                                     constant float2* controlPoints,
                                     bool firstEnd,
                                     uint32_t vertexId) {
     float t;
-    float2 unscaledTailDirectionVector;
+    float2 point;
     
-    if (firstEnd) {
-        float2 vectorFromStartToNext = controlPoints[0] - controlPoints[1];
-        unscaledTailDirectionVector = vectorFromStartToNext / length(vectorFromStartToNext);
-        t = 0;
+#if DEBUG
+    SubdividedArcPointDebugData subdividedArcPointDebugData;
+#endif
+    
+    if (vertexId == 0) {
+        if (firstEnd) {
+            point = controlPoints[0];
+            t = 0;
+        } else {
+            point = controlPoints[bezierGeometry->controlPointsCount - 1];
+            t = 1;
+        }
     } else {
-        float2 vectorFromEndToPrevious = controlPoints[bezierGeometry->controlPointsCount - 1]
+        
+        float2 unscaledTailDirectionVector;
+        
+        if (firstEnd) {
+            float2 vectorFromStartToNext = controlPoints[0] - controlPoints[1];
+            unscaledTailDirectionVector = vectorFromStartToNext / length(vectorFromStartToNext);
+            t = 0;
+        } else {
+            float2 vectorFromEndToPrevious = controlPoints[bezierGeometry->controlPointsCount - 1]
             - controlPoints[bezierGeometry->controlPointsCount - 2];
-        unscaledTailDirectionVector = vectorFromEndToPrevious / length(vectorFromEndToPrevious);
-        t = 1;
-    }
-    
-    float2 tailDirectionVector = unscaledTailDirectionVector * env->strokeHalfWidth;
-    
-    float2 normal = float2(tailDirectionVector.y, -tailDirectionVector.x);
-    
-    // allakh save me from division by 0
-    float subdivisionArcDividend = __FLT_M_PI__;
-    float subdivisionArcDivisor = bezierGeometry->roundedEndResolution + 1;
-    float subdivisionArc = subdivisionArcDividend / subdivisionArcDivisor;
-    uint32_t subdivisionIndex = vertexId + 1;
-    float angleToRotateBy = subdivisionArc * subdivisionIndex;
-    
-    auto cosOfAngle = cos(angleToRotateBy);
-    auto sinOfAngle = sin(angleToRotateBy);
-    
-    
-    // This is local, keep in mind
-    float2 rotatedVector = float2(
-                                  cosOfAngle * normal.x - sinOfAngle * normal.y,
-                                  sinOfAngle * normal.x + cosOfAngle * normal.y
-                                  );
-    
-    float2 pointAttachedToTheEnd;
-    if (firstEnd) {
-        pointAttachedToTheEnd = controlPoints[0] + rotatedVector;
-    } else {
-        pointAttachedToTheEnd = controlPoints[bezierGeometry->controlPointsCount - 1]
+            unscaledTailDirectionVector = vectorFromEndToPrevious / length(vectorFromEndToPrevious);
+            t = 1;
+        }
+        
+        float2 tailDirectionVector = unscaledTailDirectionVector * env->strokeHalfWidth;
+        
+        float2 normal = float2(tailDirectionVector.y, -tailDirectionVector.x);
+        
+        // allakh save me from division by 0
+        float subdivisionArcDividend = __FLT_M_PI__;
+        float subdivisionArcDivisor = bezierGeometry->roundedEndPointsCount + 1;
+        float subdivisionArc = subdivisionArcDividend / subdivisionArcDivisor;
+        uint32_t subdivisionIndex = vertexId;
+        float angleToRotateBy = subdivisionArc * subdivisionIndex;
+        
+        auto cosOfAngle = cos(angleToRotateBy);
+        auto sinOfAngle = sin(angleToRotateBy);
+        
+        
+        // This is local, keep in mind
+        float2 rotatedVector = float2(
+                                      cosOfAngle * normal.x - sinOfAngle * normal.y,
+                                      sinOfAngle * normal.x + cosOfAngle * normal.y
+                                      );
+        
+        float2 pointAttachedToTheEnd;
+        if (firstEnd) {
+            pointAttachedToTheEnd = controlPoints[0] + rotatedVector;
+        } else {
+            pointAttachedToTheEnd = controlPoints[bezierGeometry->controlPointsCount - 1]
             + rotatedVector;
+        }
+        
+        point = pointAttachedToTheEnd;
+        
+#if DEBUG
+        subdividedArcPointDebugData.unscaledTailDirectionVector = unscaledTailDirectionVector;
+        subdividedArcPointDebugData.tailDirectionVector = tailDirectionVector;
+        subdividedArcPointDebugData.normalVector = normal;
+        subdividedArcPointDebugData.angleToRotateBy = angleToRotateBy;
+        subdividedArcPointDebugData.subdivisionIndex = subdivisionIndex;
+        subdividedArcPointDebugData.subdivisionArc = subdivisionArc;
+        subdividedArcPointDebugData.subdivisionArcDividend = subdivisionArcDividend;
+        subdividedArcPointDebugData.subdivisionArcDivisor = subdivisionArcDivisor;
+        subdividedArcPointDebugData.rotatedVector = rotatedVector;
+        subdividedArcPointDebugData.pointAttachedToTheEnd = pointAttachedToTheEnd;
+#endif
     }
     
-    auto pointInGpuLand = convertPointToGpuLand(env, pointAttachedToTheEnd);
+    auto pointInGpuLand = convertPointToGpuLand(env, point);
     
     VertexOut res;
     res.pos.xy = pointInGpuLand;
@@ -193,21 +237,12 @@ VertexOut calculateRoundedEndVertex(constant Env* env,
     res.t = t;
     
 #if DEBUG
+    res.subdividedArcPointDebugData = subdividedArcPointDebugData;
     if (firstEnd) {
         res.vertexType = 0;
     } else {
         res.vertexType = 2;
     }
-    res.unscaledTailDirectionVector = unscaledTailDirectionVector;
-    res.tailDirectionVector = tailDirectionVector;
-    res.normalVector = normal;
-    res.angleToRotateBy = angleToRotateBy;
-    res.subdivisionIndex = subdivisionIndex;
-    res.subdivisionArc = subdivisionArc;
-    res.subdivisionArcDividend = subdivisionArcDividend;
-    res.subdivisionArcDivisor = subdivisionArcDivisor;
-    res.rotatedVector = rotatedVector;
-    res.pointAttachedToTheEnd = pointAttachedToTheEnd;
 #endif
  
     return res;
@@ -222,13 +257,13 @@ VertexOut calculateBezierCurveVertex(
     float t;
     if (vertexId == 0) {
         t = 0;
-    } else if (vertexId == bezierGeometry->vertexCount - 1) {
+    } else if (vertexId == bezierGeometry->bodyVertexCount - 1) {
         t = 1;
     } else {
         uint32_t integerT = vertexId - 1;
         
         // minus first and last (which are reserved) and minus 1 because we shifted the integerT
-        uint32_t range = bezierGeometry->vertexCount - 3;
+        uint32_t range = bezierGeometry->bodyVertexCount - 3;
         t = (float)integerT / (float)range;
     }
     
@@ -275,13 +310,13 @@ kernel void calculateVertex(
                             uint32_t vertexId [[thread_position_in_grid]]) {
     uint32_t startVertexIdForRoundedEndSubdivisions1 = 0;
     uint32_t endVertexIdForRoundedEndSubdivisions1 = startVertexIdForRoundedEndSubdivisions1
-        + bezierGeometry->roundedEndResolution;
+        + bezierGeometry->roundedEndPointsCount;
     uint32_t startVertexIdForBezierGeometry = endVertexIdForRoundedEndSubdivisions1;
     uint32_t endVertexIdForBezierGeometry = startVertexIdForBezierGeometry
-        + bezierGeometry->vertexCount;
+        + bezierGeometry->bodyVertexCount;
     
     uint32_t startVertexIdForRoundedEndSubdivisions2 = endVertexIdForBezierGeometry;
-    uint32_t endVertexIdForRoundedEndSubdivisions2 = startVertexIdForRoundedEndSubdivisions2 + bezierGeometry->roundedEndResolution;
+    uint32_t endVertexIdForRoundedEndSubdivisions2 = startVertexIdForRoundedEndSubdivisions2 + bezierGeometry->roundedEndPointsCount;
     
     VertexOut res;
     

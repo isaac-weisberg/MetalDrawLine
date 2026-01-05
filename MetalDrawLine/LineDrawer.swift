@@ -17,15 +17,9 @@ private final class LineDrawerMTKViewDelegate: NSObject, MTKViewDelegate {
 struct Env {
     var canvasSize: simd_float2
     var strokeHalfWidth: simd_float1
-    var totalVertexCount: UInt32
 }
 
-struct VertexOut {
-    var pos: simd_float4 = .zero
-    var t: Float = 0
-    
-    #if DEBUG
-    var vertexType: UInt8 = 0
+struct SubdividedArcPointDebugData {
     var unscaledTailDirectionVector: simd_float2 = .zero
     var tailDirectionVector: simd_float2 = .zero
     var normalVector: simd_float2 = .zero
@@ -36,13 +30,38 @@ struct VertexOut {
     var subdivisionArcDivisor: Float = 0;
     var rotatedVector: simd_float2 = .zero
     var pointAttachedToTheEnd: simd_float2 = .zero
+}
+
+struct VertexOut {
+    var pos: simd_float4 = .zero
+    var t: Float = 0
+    
+    #if DEBUG
+    var vertexType: UInt8 = 0
+    var subdividedArcPointDebugData = SubdividedArcPointDebugData();
     #endif
 }
 
 struct BezierGeometry {
-    var vertexCount: UInt32
+    var bodyVertexCount: UInt32
     var controlPointsCount: UInt32
-    var roundedEndResolution: UInt32
+    /// NB: 1 point for semi-cercle center
+    /// + n points for arc resolution
+    var roundedEndPointsCount: UInt32
+    var totalVertexCount: UInt32
+    
+    init(
+        bodyVertexCount: UInt32,
+        controlPointsCount: UInt32,
+        roundedEndPointsCount: UInt32,
+    ) {
+        self.bodyVertexCount = bodyVertexCount
+        self.controlPointsCount = controlPointsCount
+        self.roundedEndPointsCount = roundedEndPointsCount
+        self.totalVertexCount = roundedEndPointsCount
+            + roundedEndPointsCount
+            + bodyVertexCount
+    }
 }
 
 struct Shading {
@@ -101,21 +120,17 @@ final class LineDrawer {
         
         bezierGeometry = MetalVariable(
             value: BezierGeometry(
-                vertexCount: 200,
+                bodyVertexCount: 200,
                 controlPointsCount: UInt32(controlPoints.value.count),
-                roundedEndResolution: 5,
+                roundedEndPointsCount: 5,
             ),
             device: device
         )!
-        let totalVertexCount: UInt32 = bezierGeometry.value.roundedEndResolution
-            + bezierGeometry.value.vertexCount
-            + bezierGeometry.value.roundedEndResolution;
         
         env = MetalVariable(
             value: Env(
                 canvasSize: simd_float2(x: 0, y: 0),
                 strokeHalfWidth: 16,
-                totalVertexCount: totalVertexCount
             ),
             device: device
         )!
@@ -144,7 +159,7 @@ final class LineDrawer {
         bakedVertices = MetalArrayVariable(
             value: Array(
                 repeating: VertexOut(),
-                count: Int(totalVertexCount),
+                count: Int(bezierGeometry.value.totalVertexCount),
             ),
             device: device
         )!
@@ -284,7 +299,7 @@ final class LineDrawer {
                 
                 let w = geometryPipelineState.threadExecutionWidth
                 
-                let threadgroupsPerGrid = MTLSize(width: (Int(env.value.totalVertexCount) + w - 1) / w,
+                let threadgroupsPerGrid = MTLSize(width: (Int(bezierGeometry.value.totalVertexCount) + w - 1) / w,
                                                   height: 1,
                                                   depth: 1)
                 let threadsPerThreadgroup = MTLSizeMake(w, 1, 1)
@@ -317,7 +332,7 @@ final class LineDrawer {
             onscreenCommandEncoder.drawPrimitives(
                 type: .triangleStrip,
                 vertexStart: 0,
-                vertexCount: Int(env.value.totalVertexCount)
+                vertexCount: Int(bezierGeometry.value.totalVertexCount)
             )
             
             onscreenCommandEncoder.endEncoding()
@@ -354,4 +369,8 @@ extension simd_half4 {
 
         self.init(red, green, blue, alpha)
     }
+}
+
+func buildIndicesForLayout(env: Env, bezierGeometry: BezierGeometry) {
+    
 }
